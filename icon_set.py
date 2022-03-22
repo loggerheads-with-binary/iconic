@@ -1,0 +1,369 @@
+from argparse import ArgumentParser, Namespace
+from http.client import UnknownProtocol
+import os, sys, subprocess
+from . import icon_make
+import logging
+from annautils import is_admin
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+convert_engine = icon_make.convert_engine
+
+TYPES_ALLOWED = ['lnk/url' , 'lnk' , 'url' , 'exe' , 'folder' , 'dir' , 'drive' , 'reg']
+
+def arguments(args : list = None):
+
+    global types_allowed
+
+    parser = ArgumentParser(prog = 'icon-set' , description = "Sets/Retrieves icons on Windows" ,
+                            epilog = f'Stored @{os.path.dirname(os.path.abspath(__file__))}')
+
+    parser.add_argument("file" , type = os.path.abspath ,
+                        help = 'Path to the shortcut/folder/program/drive you are setting the icon for')
+
+    # parser.add_argument("--type" , choices = types_allowed , default = None ,
+    #                     help = "Type of setting icon. DEFAULT pulled from the file type")
+
+    parser.add_argument('-i' , '--icon' , '--icon-file' , type = os.path.abspath , dest = 'icon' , default = None ,
+                        help = 'Path to the icon file to be used')
+
+    parser.add_argument('-r' , '--retrieve' , '--get' , '--obtain' , action = 'store_const' , default = 'set' , const = 'get' ,
+                        dest = 'mode' , help = "Retrieve the icon file instead of setting an icon")
+
+    parser.add_argument("-d" , '--drive' , '--drive-mode' , '--mode=drive' , action = 'store_true' , dest = 'drive_mode' , 
+                        help = "Set icon to drive through the windows registry. NOTE: Requires admin elevated shell privileges.")
+
+    process_parser = parser.add_argument_group("Process a source file")
+
+    process_parser.add_argument('--src' , '--isrc' , '--icon-source' , type = os.path.abspath , dest = 'icon_source' , default = None ,
+                        help = 'Source file to generate icon. Only .png/.bmp/.jpg files accepted')
+
+    process_parser.add_argument('--idest'  , '--icon-dest' , type = os.path.abspath , dest = 'icon_dest'  , default = None ,
+                        help = 'Destination file to be generated if using source file. DEFAULT just creates .ico of same original file')
+
+    if args is None:
+        return parser.parse_args()
+
+    return parser.parse_args(args)
+
+##NOTE: Icon = None => get mode; else set mode 
+def icon_shortcut(file , icon = None):
+
+    import win32com.client 
+    shell = win32com.client.Dispatch("WScript.Shell")
+
+    shortcut = shell.CreateShortcut(file)
+
+    if icon is None:
+        logger.info("Retrieving shortcut icon path")
+        return shortcut.IconLocation 
+
+    else:
+        logger.info("Setting shortcut icon path")
+        shortcut.IconLocation = os.path.abspath(icon)
+        logger.debug('Saving changes')
+        shortcut.save()
+        return None 
+
+##TODO: complete code here
+class IconSet():
+
+    def folder(self , icon , folder ):
+
+        assert os.path.isdir(folder) , f'The given file is not a directory'
+
+        from configparser import ConfigParser
+
+        config = ConfigParser()
+        desktop_ini = os.path.join(folder , 'desktop.ini')
+        logger.debug(f"Desktop.ini file: {desktop_ini}")
+
+        if not os.path.exists(desktop_ini):
+            open(desktop_ini , 'w+').close()
+            
+        config.read(desktop_ini)
+
+        if not config.has_section(".ShellClassInfo"):
+            config.add_section(".ShellClassInfo")
+
+        config.set('.ShellClassInfo' , 'IconResource' , f"{os.path.abspath(icon)},0")
+
+        logger.debug("Unlocking desktop.ini")
+        subprocess.call(f"attrib -h -s \"{desktop_ini}\"")
+
+        with open(desktop_ini , 'w+') as filehandle:
+           config.write(filehandle)
+
+        logger.debug("Locking desktop.ini")
+        subprocess.call(f"attrib +h +s \"{desktop_ini}\"")
+
+        return True 
+
+    def shortcut(self , icon, file):
+
+        return icon_shortcut(file , icon)
+        
+    def executable(self , icon, file):
+
+        x = subprocess.call(['rcedit.exe' , file , '--set-icon' , icon])
+
+        if x !=0 :
+            raise RuntimeError("Setting icon file failed")
+
+        logger.info(f"Icon {icon} successfully set on {file}")
+
+        return True
+
+    def registry(self , icon , file):
+
+        import re 
+
+        ##The program changes the environment variable ICON_SET_RUNNING to 1 temporarily to make sure the warning is not raised from registry_edit
+        
+        logger.debug("Setting 'ICON_SET_RUNNING' environment variable")
+        os.environ['ICON_SET_RUNNING'] = '1' 
+        from .registry_edit import write_reg 
+
+        assert re.match(r"^[A-Z](\:|\:\\)?$" , file), f'Path: `{file}` is not a drive'
+        logger.debug("Valid drive")
+        
+        status = write_reg(drive = file , icon = icon)
+        
+        if status is   True:
+            logger.info(f"Icon {icon} set for Drive: {file}")
+
+        else:
+            
+            #logger.error("Icon not set on drive")
+            raise RuntimeError("Icon setting unsuccessful")
+
+        os.environ.pop("ICON_SET_RUNNING")
+        logger.debug("Popped 'ICON_SET_RUNNING' environment variable")
+
+        return True 
+
+class IconGet():
+
+    def folder(self, icon = None, folder = None):
+        
+        from configparser import ConfigParser
+
+        desktop_ini = os.path.join(folder , 'desktop.ini')
+        logger.debug(f"Desktop.ini file: {desktop_ini}")
+
+        if not os.path.exists(desktop_ini):
+            raise FileNotFoundError('desktop.ini not found in target folder')
+
+        logger.debug("Found desktop.ini; setting up parser")
+
+        config = ConfigParser()
+        config.read(desktop_ini)
+
+        assert config.has_section(".ShellClassInfo"), f'ShellClassInfo Section does not exist in desktop.ini'
+        assert config.has_option(".ShellClassInfo" , 'IconResource'), f'IconResource Value does not in desktop.ini'
+
+        val = config.get(".ShellClassInfo" , 'IconResource')
+
+        logger.info("Successfully retrieved icon path")
+
+        if __name__ == '__main__':
+            print(val)
+        
+        return val 
+
+    def shortcut(self , icon = None , file = None):
+
+        icon = icon_shortcut(file , None)        
+        logger.info("Path to icon file is listed below")
+        
+        if __name__ == '__main__':
+            print(icon)
+        
+        return icon 
+    
+    ##TODO: Complete this part 
+    def dll(self , icon : list = None, file = None , count : list = [0]):
+ 
+        if icon is None:
+            raise Exception("For executables, icon paths need to be defined as they have to be saved there")
+
+        if len(icon) != len(count):
+            raise ValueError("Number of icons to be extracted don't match output")
+
+        from .ico_extract import IconExtractor
+
+        xtractor = IconExtractor(file)
+
+        raise NotImplementedError("Function not completed yet")
+
+    def executable(self , icon = None , file = None):
+
+        if icon is None:
+            raise Exception("For executables, icon paths need to be defined as they have to be saved there")
+
+        logger.debug("Extracting icon from an executable")
+
+        from .ico_extract import IconExtractor
+
+        logger.debug("Loading program file")
+        xtractor = IconExtractor(file)
+        #xtractor._get_group_icon_entries()
+
+        xtractor.export_icon(icon)  
+        logger.info(f"Icon from {file} saved at {icon}")
+
+
+        # import win32ui
+        # import win32gui
+        # import win32con
+        # import win32api
+
+        # ico_x = win32api.GetSystemMetrics(win32con.SM_CXICON)
+        # ico_y = win32api.GetSystemMetrics(win32con.SM_CYICON)
+
+        # large, small = win32gui.ExtractIconEx(file,0)
+        # win32gui.DestroyIcon(small[0])
+
+        # logger.debug("Windows GUI Icon extraction completed")
+
+        # hdc = win32ui.CreateDCFromHandle(win32gui.GetDC(0))
+        # hbmp = win32ui.CreateBitmap()
+        # hbmp.CreateCompatibleBitmap(hdc, ico_x, ico_x)
+        # hdc = hdc.CreateCompatibleDC()
+
+        # logger.debug("Icon Extraction completed")
+
+        # hdc.SelectObject(hbmp)
+        # hdc.DrawIcon((0,0), large[0])
+
+        # hbmp.SaveBitmapFile( hdc, '_icon.tmp.bmp')
+        # logger.debug("Icon saved temporarily as _icon.tmp.bmp")
+
+        # convert_engine('_icon.tmp.bmp' , icon)
+        # logger.info(f"Executable icon saved as {icon}")
+
+        # os.remove('_icon.tmp.bmp')
+        # logger.debug("Temporary file '_icon.tmp.bmp' has been removed")
+
+    def registry(self , icon = None , file = None):
+        
+        import re          
+        assert re.match(r"^[A-Z](\:|\:\\)?$" , file), f'Path: `{file}` is not a drive'
+
+
+        ##The program changes the environment variable ICON_SET_RUNNING to 1 temporarily to make sure the warning is not raised from registry_edit
+        
+        logger.debug("Setting 'ICON_SET_RUNNING' environment variable")
+        os.environ['ICON_SET_RUNNING'] = '1'
+        from .registry_edit import read_reg 
+
+        icon = read_reg(file, flags = (True,False))
+
+        if icon[0] is True:
+            icon = icon[1]
+
+        else:
+            raise ValueError("Could not obtain icon file path")
+
+        if __name__ == '__main__':
+            print(icon)
+        
+        os.environ.pop("ICON_SET_RUNNING")
+        logger.debug("Popped 'ICON_SET_RUNNING' environment variable")
+
+        return icon
+
+
+
+
+engine = IconSet()
+
+def driver(args : Namespace):
+
+    global logger, Processor, engine 
+
+    if (args.icon is None) and (args.icon_source is None) and (args.mode == 'set'):
+        raise ValueError("No input icon file or source file provided")
+
+    elif (args.icon is not None) and (args.mode == 'set') :
+
+        if os.path.splitext(args.icon)[-1] != '.ico':
+            raise TypeError(f"Icon file is invalid with extension `{os.path.splitext(args.icon)[-1]}` instead of `.ico`")
+
+        if not os.path.exists(args.icon):
+            raise FileNotFoundError("Icon file does not exist")
+
+        logger.info("Icon file exists")
+
+    elif args.icon_source is not None:
+
+        if not os.path.exists(args.icon_source):
+            raise FileNotFoundError("Source file for the icon does not exist @{}".format(args.icon_source))
+
+        # if not os.path.splitext(args.icon_source)[-1] in ['.bmp' , '.png' , '.jpg' , '.jpeg']:
+        #     raise Exception("Icon resource file is invalid; cannot use `{}` files".format(os.path.splitext(args.icon_source)[-1]))
+
+        logger.info(f"Creating icon from source file {args.icon_source}")
+
+        if args.icon_dest is None:
+
+            args.icon_dest = f'{args.icon_source}.ico'
+
+            convert_engine(args.icon_source , args.icon_dest)
+            logger.info("Icon file generated")
+            args.icon = args.icon_dest
+
+    if not os.path.exists(args.file):
+        raise FileNotFoundError("File to set icon on does not exist")
+
+    logger.debug(f"Icon file: {args.icon}")
+    logger.debug(f"Target file: {args.file}")
+
+    if args.drive_mode:
+
+        logger.debug("Set to Drive Mode")
+        engine.registry(args.icon , args.file)
+
+    else:
+
+        if os.path.isdir(args.file):
+
+            logger.info("Selected file is a directory")
+            logger.debug("Using directory method")
+            engine.folder(args.icon , args.file)
+
+        elif os.path.splitext(args.file)[-1] in (".lnk" , ".url"):
+
+            logger.info("Selected file is a windows shortcut")
+            logger.debug("Using windows shortcut method")
+            engine.shortcut(args.icon , args.file)         
+        
+        elif os.path.splitext(args.file)[-1] == '.exe':
+
+            logger.info("Selected file is a windows executable")
+            logger.debug("Using windows executable method")
+            engine.executable(args.icon , args.file)
+
+        logger.info("Operation completed")
+
+if __name__ == '__main__':
+
+    import pretty_traceback , coloredlogs
+
+    pretty_traceback.install()
+    coloredlogs.install(fmt = "[%(name)s] %(asctime)s %(levelname)s : %(message)s" , level = logging.DEBUG)
+
+    args = arguments()
+
+    if args.mode == 'get':
+        engine = IconGet()
+
+    elif args.mode == "set":
+        engine = IconSet()
+
+    else:
+        raise NotImplementedError("Mode can only be get/set; not {}".format(args.mode))
+
+    logger.debug("Arguments Parsed")
+    driver(args)
