@@ -306,6 +306,7 @@ class IconGet():
         logger.debug("Extracting icon from source program")
         ico_x = win32api.GetSystemMetrics(win32con.SM_CXICON)
         large, small = win32gui.ExtractIconEx(file,0)
+
         win32gui.DestroyIcon(small[0])
 
 
@@ -348,7 +349,7 @@ class IconGet():
             if icon is None:
                 raise RuntimeError("Since there is no DefaultIcon; an icon path is needed to store the generated file")
 
-            self._prog_assoc(icon = icon , ext = ext)
+            self._prog_assoc(icon = icon , file = file)
 
         else:
             return s[-1]
