@@ -312,9 +312,9 @@ def driver(args : Namespace):
 
             args.icon_dest = f'{args.icon_source}.ico'
 
-            convert_engine(args.icon_source , args.icon_dest)
-            logger.info("Icon file generated")
-            args.icon = args.icon_dest
+        convert_engine(args.icon_source , args.icon_dest)
+        logger.info("Icon file generated")
+        args.icon = args.icon_dest
 
     if not os.path.exists(args.file):
         raise FileNotFoundError("File to set icon on does not exist")
@@ -326,6 +326,11 @@ def driver(args : Namespace):
 
         logger.debug("Set to Drive Mode")
         engine.drive(args.icon , args.file)
+
+    elif args.assoc_mode:
+
+
+
 
     else:
 
