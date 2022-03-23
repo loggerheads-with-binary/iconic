@@ -72,7 +72,6 @@ def icon_shortcut(file , icon = None):
         shortcut.save()
         return None 
 
-##TODO: complete code here
 class IconSet():
 
     def folder(self , icon , folder ):
@@ -121,7 +120,7 @@ class IconSet():
 
         return True
 
-    def registry(self , icon , file):
+    def drive(self , icon , file):
 
         import re 
 
@@ -252,7 +251,7 @@ class IconGet():
         # os.remove('_icon.tmp.bmp')
         # logger.debug("Temporary file '_icon.tmp.bmp' has been removed")
 
-    def registry(self , icon = None , file = None):
+    def drive(self , icon = None , file = None):
         
         import re          
         assert re.match(r"^[A-Z](\:|\:\\)?$" , file), f'Path: `{file}` is not a drive'
@@ -279,9 +278,6 @@ class IconGet():
         logger.debug("Popped 'ICON_SET_RUNNING' environment variable")
 
         return icon
-
-
-
 
 engine = IconSet()
 
@@ -329,7 +325,7 @@ def driver(args : Namespace):
     if args.drive_mode:
 
         logger.debug("Set to Drive Mode")
-        engine.registry(args.icon , args.file)
+        engine.drive(args.icon , args.file)
 
     else:
 
