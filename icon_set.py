@@ -5,6 +5,12 @@ from . import icon_make
 import logging
 from annautils import is_admin
 
+"""
+Sets icons to different files, also allows retrieval. 
+Can also be used to create icons to be then set to some file
+"""
+
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 

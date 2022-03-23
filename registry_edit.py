@@ -4,6 +4,10 @@ import warnings
 import logging 
 import os 
 
+"""
+Does the necessary registry edit part for drives and file associations
+"""
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)

@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+
+"""
+Creates icons from source files
+"""
+
 from warnings import warn
 from argparse import ArgumentParser
 import os 
