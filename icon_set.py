@@ -303,6 +303,10 @@ def driver(args : Namespace):
         if not os.path.exists(args.icon_source):
             raise FileNotFoundError("Source file for the icon does not exist @{}".format(args.icon_source))
 
+        ext = os.path.splitext(args.icon_source)[-1]
+
+
+
         # if not os.path.splitext(args.icon_source)[-1] in ['.bmp' , '.png' , '.jpg' , '.jpeg']:
         #     raise Exception("Icon resource file is invalid; cannot use `{}` files".format(os.path.splitext(args.icon_source)[-1]))
 
@@ -312,8 +316,24 @@ def driver(args : Namespace):
 
             args.icon_dest = f'{args.icon_source}.ico'
 
-        convert_engine(args.icon_source , args.icon_dest)
-        logger.info("Icon file generated")
+        if ext == '.exe':
+
+            IconGet().executable(icon = args.icon_dest , file = args.icon_source)
+            logger.info("Icon file extracted from soufce executable file")
+
+        elif os.path.isdir(args.icon_source):
+
+            args.icon_source = IconGet().folder(folder = args.icon_source)
+            logger.debug("Obtained icon path of source folder")
+            convert_engine(args.icon_source , args.icon_dest)
+            logger.info("Icon file generated from icon file of source directory")
+
+        else:
+
+            convert_engine(args.icon_source , args.icon_dest)
+            logger.info("Icon file generated from source image file")
+        
+        
         args.icon = args.icon_dest
 
     if not os.path.exists(args.file):
