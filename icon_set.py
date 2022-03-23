@@ -1,9 +1,7 @@
 from argparse import ArgumentParser, Namespace
-from http.client import UnknownProtocol
-import os, sys, subprocess
+import os, subprocess
 from . import icon_make
 import logging
-from annautils import is_admin
 
 """
 Sets icons to different files, also allows retrieval. 
@@ -37,8 +35,13 @@ def arguments(args : list = None):
     parser.add_argument('-r' , '--retrieve' , '--get' , '--obtain' , action = 'store_const' , default = 'set' , const = 'get' ,
                         dest = 'mode' , help = "Retrieve the icon file instead of setting an icon")
 
-    parser.add_argument("-d" , '--drive' , '--drive-mode' , '--mode=drive' , action = 'store_true' , dest = 'drive_mode' , 
+    add_parser = parser.add_argument_group("Additional Functionalities")
+
+    add_parser.add_argument("-d" , '--drive' , '--drive-mode' , '--mode=drive' , action = 'store_true' , dest = 'drive_mode' , 
                         help = "Set icon to drive through the windows registry. NOTE: Requires admin elevated shell privileges.")
+
+    add_parser.add_argument('-a' , '--assoc' , '--file-assoc' , '--file-association' , dest = 'assoc' , action = 'store_const' , const = True,
+                            default = None , help = "Retrieve/set file association icons through registry")
 
     process_parser = parser.add_argument_group("Process a source file")
 
@@ -147,6 +150,11 @@ class IconSet():
         logger.debug("Popped 'ICON_SET_RUNNING' environment variable")
 
         return True 
+
+    def assoc(self , icon , file):
+
+        from .registry_edit import write_assoc
+        write_assoc(file , icon)
 
 class IconGet():
 
@@ -279,6 +287,72 @@ class IconGet():
 
         return icon
 
+    def _prog_assoc(self , icon  = None , file = None):
+
+        import win32ui
+        import win32gui
+        import win32con
+        import win32api
+        from PIL import Image   
+
+        """
+        From Stack Overflow: https://stackoverflow.com/questions/25511706/get-associated-filetype-icon-for-a-file
+        """ 
+
+        tempDirectory = os.getenv("temp")
+        tempfile = os.path.join(tempDirectory , f'icon_res.tmp.bmp')
+        logger.debug("setup temporary file %s" %tempfile)
+
+        logger.debug("Extracting icon from source program")
+        ico_x = win32api.GetSystemMetrics(win32con.SM_CXICON)
+        large, small = win32gui.ExtractIconEx(file,0)
+        win32gui.DestroyIcon(small[0])
+
+
+        logger.debug("Creating bitmap")
+        #creating a destination memory DC
+        hdc = win32ui.CreateDCFromHandle( win32gui.GetDC(0) )
+        hbmp = win32ui.CreateBitmap()
+        hbmp.CreateCompatibleBitmap(hdc, ico_x, ico_x)
+        hdc = hdc.CreateCompatibleDC()
+
+        hdc.SelectObject( hbmp )
+
+        #draw a icon in it
+        logger.debug("DrawIcon::Post Processing")
+        hdc.DrawIcon( (0,0), large[0] )
+        win32gui.DestroyIcon(large[0])
+
+        #convert picture
+        logger.debug("Creating temporary bitmap file")
+        hbmp.SaveBitmapFile( hdc, tempfile)
+
+        logger.debug("Converting to ico file")
+        im = Image.open(tempfile)
+        im.save(icon)
+
+        logger.debug("Removing temporary bitmap file")
+        os.remove(tempfile)
+
+        return im 
+
+    def assoc(self , icon = None , file = None):
+
+        from .registry_edit import read_assoc
+
+        s = read_assoc(os.path.splitext(file)[-1])
+
+        if s[0] is False:
+            logger.warning(f'DefaultIcon does not exist for file type. Searching programID')    
+
+            if icon is None:
+                raise RuntimeError("Since there is no DefaultIcon; an icon path is needed to store the generated file")
+
+            self._prog_assoc(icon = icon , ext = ext)
+
+        else:
+            return s[-1]
+
 engine = IconSet()
 
 def driver(args : Namespace):
@@ -333,10 +407,10 @@ def driver(args : Namespace):
             convert_engine(args.icon_source , args.icon_dest)
             logger.info("Icon file generated from source image file")
         
-        
+
         args.icon = args.icon_dest
 
-    if not os.path.exists(args.file):
+    if not (os.path.exists(args.file) or (args.assoc is not None )) :
         raise FileNotFoundError("File to set icon on does not exist")
 
     logger.debug(f"Icon file: {args.icon}")
@@ -347,9 +421,12 @@ def driver(args : Namespace):
         logger.debug("Set to Drive Mode")
         engine.drive(args.icon , args.file)
 
-    elif args.assoc_mode:
+    elif args.assoc is not None:
 
+        logger.critical("Association mode is still in a debug stage")
 
+        logger.debug("Setting up file association mode")
+        engine.assoc( args.icon , args.file )
 
 
     else:

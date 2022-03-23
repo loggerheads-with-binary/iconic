@@ -1,5 +1,4 @@
 import winreg 
-from annautils import is_admin
 import warnings 
 import logging 
 import os 
@@ -15,11 +14,24 @@ logger.setLevel(logging.DEBUG)
 if not 'ICON_SET_RUNNING' in os.environ:
     warnings.warn("The registry_edit script works only for iconic package due to setup")
 
-BASE_KEY  = r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\DriveIcons"
+#BASE_KEY  = r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\DriveIcons"
+BASE_KEY = winreg.HKEY_LOCAL_MACHINE
 REAL_KEY = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\DriveIcons"
 VALUE_NAME = ""
 
-def _read_reg(key):
+##Cross platform way to identify admin status
+def is_admin():
+	import ctypes, os
+
+	try:
+		is_admin = os.getuid() == 0
+
+	except AttributeError:
+		is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+
+	return bool(is_admin)
+
+def _read_reg(key , base = BASE_KEY , value = VALUE_NAME):
 
     global VALUE_NAME , REAL_KEY
 
@@ -32,7 +44,7 @@ def _read_reg(key):
 
         try:
 
-            reg_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE , key , 0 , winreg.KEY_READ)
+            reg_key = winreg.OpenKey(base , key , 0 , winreg.KEY_READ)
             logger_.debug("Drive Registry Key already exists")            
 
         except:
@@ -40,7 +52,7 @@ def _read_reg(key):
             logger_.error("DriveIcon registry key does not exist")
             return (False , None)
 
-        val , _ = winreg.QueryValueEx(reg_key , VALUE_NAME)
+        val , _ = winreg.QueryValueEx(reg_key , value)
         winreg.CloseKey(reg_key)
         
         return (True, val)
@@ -53,7 +65,7 @@ def _read_reg(key):
     except:
         raise 
 
-def _write_reg(key , val):
+def _write_reg(key , val , base = BASE_KEY , value_name = VALUE_NAME):
 
     global REAL_KEY , VALUE_NAME
     
@@ -64,18 +76,18 @@ def _write_reg(key , val):
         
         try:
 
-            reg_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE , key , 0 , winreg.KEY_WRITE)
+            reg_key = winreg.OpenKey(base , key , 0 , winreg.KEY_WRITE)
             logger_.debug("Drive Registry Key already exists")
 
         except:
 
-            winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE , key)
+            winreg.CreateKey(base , key)
             logger_.debug("Drive registry key created")
             
-            reg_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE , key , 0 , winreg.KEY_WRITE)
+            reg_key = winreg.OpenKey(base , key , 0 , winreg.KEY_WRITE)
             logger_.debug("Loaded registry key")
 
-        winreg.SetValueEx(reg_key , VALUE_NAME , 0 , winreg.REG_SZ , val)   
+        winreg.SetValueEx(reg_key , value_name , 0 , winreg.REG_SZ , val)   
         winreg.CloseKey(reg_key)
 
         return True      
@@ -180,3 +192,20 @@ def read_reg(drive , flags = (True , True)):
 
     r[0] =  all(map( lambda x : x is not None , r[1:] ))        ##True only if all values are not None
     return tuple(r)
+
+def write_assoc(ext , icon = None):
+
+    pass
+    assert is_admin() , f'Registry can only be edited in admin mode'
+
+    s = _write_reg(f"{ext}\\DefaultIcon" , val = icon , base = winreg.HKEY_CLASSES_ROOT)
+    
+    if s:
+        logger.info(f"Succcessfully set default icon {icon} for file extension {ext}")
+
+    else:
+        logger.warning(f'Some error occured in setting icon')
+
+    return s
+
+read_assoc = lambda ext , icon = None : _read_reg(key = f"{ext}\\DefaultIcon" , base = winreg.HKEY_CLASSES_ROOT)
