@@ -21,15 +21,14 @@ VALUE_NAME = ""
 
 ##Cross platform way to identify admin status
 def is_admin():
-	import ctypes, os
+    
+    try:
+        import os 
+        return bool(os.getuid() == 0)
 
-	try:
-		is_admin = os.getuid() == 0
-
-	except AttributeError:
-		is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
-
-	return bool(is_admin)
+    except AttributeError:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin() != 0)
 
 def _read_reg(key , base = BASE_KEY , value = VALUE_NAME):
 
